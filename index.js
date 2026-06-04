@@ -1,3 +1,7 @@
+// ====================== POLYFILL للـ crypto ======================
+const crypto = require('crypto');
+global.crypto = crypto;   // مهم جداً لـ Hostinger
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -29,7 +33,11 @@ app.set('io', io);
 // Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+
+app.use(cors({
+  origin: process.env.CLIENT_URL,
+  credentials: true
+}));
 
 app.use((req, res, next) => {
   console.log(`📌 ${req.method} ${req.url}`);
@@ -48,7 +56,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 
 app.get('/api/test', (req, res) => res.json({ message: '✅ Backend شغال' }));
 
-// Socket.io
+// Socket
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
@@ -70,7 +78,13 @@ io.on('connection', (socket) => {
   socket.on('sendMessage', async ({ application_id, message }) => {
     if (!message?.trim()) return;
     try {
-      // ... (كود الرسائل زي ما هو عندك)
+      const newMessage = new Message({
+        application_id,
+        sender_id: socket.user.id,
+        message: message.trim(),
+        timestamp: new Date()
+      });
+      await newMessage.save();
       console.log('✅ Message sent');
     } catch (err) {
       console.error('Socket Error:', err);
@@ -80,15 +94,17 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => console.log('مستخدم انفصل'));
 });
 
-// Start
+// Start Server
 const startServer = async () => {
   try {
     console.log("🔗 Connecting to MongoDB...");
-    await mongoose.connect(process.env.MONGO_URI);
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 15000,
+    });
     console.log('✅ MongoDB connected successfully');
 
     const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
+    server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
     process.exit(1);
