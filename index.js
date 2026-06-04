@@ -19,23 +19,32 @@ const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
     origin: process.env.CLIENT_URL || "*",
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true
   }
 });
 
 app.set('io', io);
 
-// ───────────── MIDDLEWARE ─────────────
+// ───────────── MIDDLEWARES ─────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// CORS Configuration (مهم جداً)
 app.use(cors({
-  origin: process.env.CLIENT_URL || "*",
-  credentials: true
+  origin: process.env.CLIENT_URL,        // ← سيسمح فقط بالدومين بتاعك
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// uploads (اختياري)
+// Logging للطلبات (للديباج)
+app.use((req, res, next) => {
+  console.log(`📌 ${req.method} ${req.url} | Origin: ${req.headers.origin}`);
+  next();
+});
+
+// Static uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ───────────── ROUTES ─────────────
@@ -46,7 +55,15 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
 
-// ───────────── SOCKET AUTH ─────────────
+// Test Route
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    message: 'Backend شغال تمام ✅',
+    client_url: process.env.CLIENT_URL || 'غير محدد'
+  });
+});
+
+// ───────────── SOCKET AUTH & LOGIC ─────────────
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
@@ -60,7 +77,6 @@ io.use((socket, next) => {
   }
 });
 
-// ───────────── SOCKET LOGIC ─────────────
 io.on('connection', (socket) => {
   console.log('مستخدم متصل:', socket.user?.id);
 
@@ -96,16 +112,13 @@ io.on('connection', (socket) => {
 
       if (!appData) return;
 
-      const recipientIsSeeker =
-        socket.user.id === appData.job_id.owner_id.toString();
+      const recipientIsSeeker = socket.user.id === appData.job_id.owner_id.toString();
 
       const recipientId = recipientIsSeeker
         ? appData.seeker_id._id.toString()
         : appData.job_id.owner_id.toString();
 
-      const recipientField = recipientIsSeeker
-        ? 'unreadCounts.seeker'
-        : 'unreadCounts.owner';
+      const recipientField = recipientIsSeeker ? 'unreadCounts.seeker' : 'unreadCounts.owner';
 
       await Application.findByIdAndUpdate(application_id, {
         lastMessage: message.trim(),
@@ -113,8 +126,7 @@ io.on('connection', (socket) => {
         $inc: { [recipientField]: 1 }
       });
 
-      const currentUnread =
-        appData.unreadCounts?.[recipientIsSeeker ? 'seeker' : 'owner'] || 0;
+      const currentUnread = appData.unreadCounts?.[recipientIsSeeker ? 'seeker' : 'owner'] || 0;
 
       io.to(recipientId).emit('unreadUpdate', {
         application_id,
@@ -146,12 +158,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// ───────────── TEST ─────────────
-app.get('/api/test', (req, res) => {
-  res.json({ message: 'Backend شغال تمام ✅' });
-});
-
-// ───────────── DB + START ─────────────
+// ───────────── DB + SERVER START ─────────────
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.log('❌ Mongo Error:', err));
@@ -160,4 +167,5 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🌐 Allowed Client URL: ${process.env.CLIENT_URL || 'غير محدد (كل المواقع)'}`);
 });
