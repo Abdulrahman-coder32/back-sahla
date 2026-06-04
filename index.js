@@ -37,7 +37,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Static uploads
+// Static uploads (optional)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ─────────────────────────────
@@ -49,19 +49,6 @@ app.use('/api/applications', require('./routes/applications'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
-
-// ─────────────────────────────
-// SOCKET HELPERS
-// ─────────────────────────────
-const emitProfileUpdate = (userId, profileImageUrl, cacheBuster) => {
-  io.to(userId.toString()).emit('profileUpdated', {
-    userId,
-    profileImage: profileImageUrl,
-    cacheBuster
-  });
-};
-
-app.set('emitProfileUpdate', emitProfileUpdate);
 
 // ─────────────────────────────
 // SOCKET AUTH
@@ -165,19 +152,6 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('مستخدم انفصل:', socket.user?.id);
   });
-});
-
-// ─────────────────────────────
-// FRONTEND (Angular)
-// ─────────────────────────────
-app.use(express.static(
-  path.join(__dirname, 'fadahrak-frontend/dist/fadahrak-frontend')
-));
-
-app.get(/^\/(?!api).*/, (req, res) => {
-  res.sendFile(
-    path.join(__dirname, 'fadahrak-frontend/dist/fadahrak-frontend/index.html')
-  );
 });
 
 // ─────────────────────────────
