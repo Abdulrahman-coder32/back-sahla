@@ -13,9 +13,14 @@ const Notification = require('./models/Notification');
 
 dotenv.config();
 
+// التحقق من وجود MONGO_URI
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI مش موجود في الـ Environment Variables!");
+  process.exit(1);
+}
+
 const app = express();
 const server = http.createServer(app);
-
 const io = socketIo(server, {
   cors: {
     origin: process.env.CLIENT_URL || "*",
@@ -30,15 +35,15 @@ app.set('io', io);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS Configuration (مهم جداً)
+// CORS Configuration
 app.use(cors({
-  origin: process.env.CLIENT_URL,        // ← سيسمح فقط بالدومين بتاعك
+  origin: process.env.CLIENT_URL,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// Logging للطلبات (للديباج)
+// Logging للطلبات
 app.use((req, res, next) => {
   console.log(`📌 ${req.method} ${req.url} | Origin: ${req.headers.origin}`);
   next();
@@ -57,7 +62,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 
 // Test Route
 app.get('/api/test', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Backend شغال تمام ✅',
     client_url: process.env.CLIENT_URL || 'غير محدد'
   });
@@ -67,7 +72,6 @@ app.get('/api/test', (req, res) => {
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
-
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = { id: decoded.id, role: decoded.role };
@@ -79,7 +83,6 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   console.log('مستخدم متصل:', socket.user?.id);
-
   if (socket.user?.id) {
     socket.join(socket.user.id.toString());
   }
@@ -90,7 +93,6 @@ io.on('connection', (socket) => {
 
   socket.on('sendMessage', async ({ application_id, message }) => {
     if (!message?.trim()) return;
-
     try {
       const newMessage = new Message({
         application_id,
@@ -98,7 +100,6 @@ io.on('connection', (socket) => {
         message: message.trim(),
         timestamp: new Date()
       });
-
       await newMessage.save();
 
       const populatedMessage = await Message.findById(newMessage._id)
@@ -113,7 +114,6 @@ io.on('connection', (socket) => {
       if (!appData) return;
 
       const recipientIsSeeker = socket.user.id === appData.job_id.owner_id.toString();
-
       const recipientId = recipientIsSeeker
         ? appData.seeker_id._id.toString()
         : appData.job_id.owner_id.toString();
@@ -127,7 +127,6 @@ io.on('connection', (socket) => {
       });
 
       const currentUnread = appData.unreadCounts?.[recipientIsSeeker ? 'seeker' : 'owner'] || 0;
-
       io.to(recipientId).emit('unreadUpdate', {
         application_id,
         unreadCount: currentUnread + 1
@@ -147,7 +146,6 @@ io.on('connection', (socket) => {
       }).save();
 
       io.to(recipientId).emit('newNotification', notificationData);
-
     } catch (err) {
       console.error('❌ Socket Error:', err);
     }
@@ -159,13 +157,27 @@ io.on('connection', (socket) => {
 });
 
 // ───────────── DB + SERVER START ─────────────
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.log('❌ Mongo Error:', err));
+const startServer = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 8000,
+      socketTimeoutMS: 45000,
+      connectTimeoutMS: 10000,
+    });
 
-const PORT = process.env.PORT || 5000;
+    console.log('✅ MongoDB اتوصل بنجاح يا معلم');
 
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`🌐 Allowed Client URL: ${process.env.CLIENT_URL || 'غير محدد (كل المواقع)'}`);
-});
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => {
+      console.log(`🚀 السيرفر شغال على بورت ${PORT}`);
+      console.log(`🌐 Client URL المسموح: ${process.env.CLIENT_URL || 'كله مسموح'}`);
+    });
+
+  } catch (err) {
+    console.error('❌ فشل في الاتصال بالمونجو:', err.message);
+    process.exit(1);
+  }
+};
+
+// شغل السيرفر
+startServer();
