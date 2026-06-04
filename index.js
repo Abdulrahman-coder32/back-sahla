@@ -1,6 +1,6 @@
 // ====================== POLYFILL للـ crypto ======================
 const crypto = require('crypto');
-global.crypto = crypto;   // مهم جداً لـ Hostinger
+global.crypto = crypto; // مهم جداً لـ Hostinger
 
 const express = require('express');
 const mongoose = require('mongoose');
@@ -24,8 +24,12 @@ if (!process.env.MONGO_URI) {
 
 const app = express();
 const server = http.createServer(app);
+
 const io = socketIo(server, {
-  cors: { origin: process.env.CLIENT_URL || "*", credentials: true }
+  cors: { 
+    origin: process.env.CLIENT_URL || "*", 
+    credentials: true 
+  }
 });
 
 app.set('io', io);
@@ -33,7 +37,6 @@ app.set('io', io);
 // Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 app.use(cors({
   origin: process.env.CLIENT_URL,
   credentials: true
@@ -56,10 +59,11 @@ app.use('/api/notifications', require('./routes/notifications'));
 
 app.get('/api/test', (req, res) => res.json({ message: '✅ Backend شغال' }));
 
-// Socket
+// ====================== SOCKET.IO SETUP ======================
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
+
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     socket.user = { id: decoded.id, role: decoded.role };
@@ -70,31 +74,56 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('مستخدم متصل:', socket.user?.id);
-  if (socket.user?.id) socket.join(socket.user.id.toString());
+  console.log('✅ مستخدم متصل:', socket.user?.id);
 
-  socket.on('joinChat', (applicationId) => socket.join(applicationId));
+  if (socket.user?.id) {
+    socket.join(socket.user.id.toString());
+  }
 
+  // الانضمام لشات معين
+  socket.on('joinChat', (applicationId) => {
+    socket.join(applicationId);
+    console.log(`👥 User ${socket.user.id} joined chat: ${applicationId}`);
+  });
+
+  // إرسال رسالة عبر Socket (أهم تعديل)
   socket.on('sendMessage', async ({ application_id, message }) => {
-    if (!message?.trim()) return;
+    if (!message?.trim() || !application_id) return;
+
     try {
       const newMessage = new Message({
         application_id,
         sender_id: socket.user.id,
+        type: 'text',
         message: message.trim(),
         timestamp: new Date()
       });
+
       await newMessage.save();
-      console.log('✅ Message sent');
+
+      const populatedMessage = await Message.findById(newMessage._id)
+        .populate('sender_id', 'name profileImage cacheBuster');
+
+      // إرسال الرسالة لكل الموجودين في الروم
+      io.to(application_id).emit('newMessage', populatedMessage);
+
+      console.log(`📨 Message sent in chat ${application_id}`);
+      
+      // هنا يمكن استدعاء دالة handleNewMessage من routes/messages.js لو حابب نعمل refactor كبير
+      // لكن حالياً بنعمل emit أساسي
+
     } catch (err) {
-      console.error('Socket Error:', err);
+      console.error('❌ Socket sendMessage Error:', err);
+      socket.emit('messageError', { msg: 'فشل في إرسال الرسالة' });
     }
   });
 
-  socket.on('disconnect', () => console.log('مستخدم انفصل'));
+  socket.on('disconnect', () => {
+    console.log('❌ مستخدم انفصل:', socket.user?.id);
+  });
 });
 
-// Start Server
+// ====================== START SERVER ======================
 const startServer = async () => {
   try {
     console.log("🔗 Connecting to MongoDB...");
@@ -104,7 +133,9 @@ const startServer = async () => {
     console.log('✅ MongoDB connected successfully');
 
     const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
     process.exit(1);
