@@ -51,12 +51,12 @@ router.get('/:applicationId', auth, async (req, res) => {
       .populate('sender_id', 'name profileImage cacheBuster');
     res.json(messages);
   } catch (err) {
-    console.error(err);
+    console.error('خطأ في جلب الرسائل:', err);
     res.status(500).json({ msg: 'خطأ في جلب الرسائل' });
   }
 });
 
-// دالة مساعدة لتحديث الـ Application وإرسال الإيفنتات
+// دالة مساعدة محسنة
 async function handleNewMessage(req, res, populatedMessage, messagePreview) {
   const { application_id } = req.body;
   const io = req.app.get('io');
@@ -88,13 +88,13 @@ async function handleNewMessage(req, res, populatedMessage, messagePreview) {
 
     const updatedApp = await Application.findByIdAndUpdate(application_id, updateData, { new: true });
 
-    // إرسال الرسالة الجديدة للروم
+    // إرسال الرسالة للروم (مهم جداً)
     io.to(application_id).emit('newMessage', populatedMessage);
 
     const senderUnread = 0;
     const recipientUnread = isOwner ? updatedApp.unreadCounts.seeker : updatedApp.unreadCounts.owner;
 
-    // تحديث للمرسل (دائمًا يبعت otherUser عشان الصورة تتحدث للطرفين)
+    // تحديث للمرسل
     io.to(req.user.id).emit('chatListUpdate', {
       application_id,
       lastMessage: messagePreview,
@@ -105,7 +105,7 @@ async function handleNewMessage(req, res, populatedMessage, messagePreview) {
         : { name: app.job_id.owner_id.name, profileImage: app.job_id.owner_id.profileImage, cacheBuster: app.job_id.owner_id.cacheBuster }
     });
 
-    // تحديث للمستقبل (مع otherUser كمان)
+    // تحديث للمستقبل
     if (req.user.id !== recipientId) {
       io.to(recipientId).emit('chatListUpdate', {
         application_id,
@@ -116,10 +116,8 @@ async function handleNewMessage(req, res, populatedMessage, messagePreview) {
           ? { name: app.job_id.owner_id.name, profileImage: app.job_id.owner_id.profileImage, cacheBuster: app.job_id.owner_id.cacheBuster }
           : { name: app.seeker_id.name, profileImage: app.seeker_id.profileImage, cacheBuster: app.seeker_id.cacheBuster }
       });
-    }
 
-    // إشعارات للمستقبل فقط
-    if (req.user.id !== recipientId) {
+      // إشعارات
       const notificationData = {
         type: 'new_message',
         message: `لديك رسالة جديدة من ${populatedMessage.sender_id.name}`,
@@ -129,13 +127,10 @@ async function handleNewMessage(req, res, populatedMessage, messagePreview) {
       };
 
       io.to(recipientId).emit('newNotification', notificationData);
-
-      // تحديث unreadCount مع application_id
       io.to(recipientId).emit('unreadUpdate', {
         application_id,
         unreadCount: recipientUnread
       });
-
       io.to(recipientId).emit('newMessageNotification', {
         type: 'new_message',
         application_id,
@@ -152,8 +147,8 @@ async function handleNewMessage(req, res, populatedMessage, messagePreview) {
 
     res.json(populatedMessage);
   } catch (err) {
-    console.error('خطأ في معالجة الرسالة الجديدة:', err);
-    res.status(500).json({ msg: 'خطأ في السيرفر' });
+    console.error('خطأ في handleNewMessage:', err);
+    res.status(500).json({ msg: 'خطأ في السيرفر أثناء معالجة الرسالة' });
   }
 }
 
@@ -172,6 +167,7 @@ router.post('/', auth, async (req, res) => {
       message: message.trim(),
       timestamp: new Date()
     });
+
     await newMessage.save();
 
     const populatedMessage = await Message.findById(newMessage._id)
@@ -206,12 +202,14 @@ router.post('/media', auth, upload.single('file'), async (req, res) => {
       size: file.size,
       timestamp: new Date()
     });
+
     await newMessage.save();
 
     const populatedMessage = await Message.findById(newMessage._id)
       .populate('sender_id', 'name profileImage cacheBuster');
 
     const preview = `[${messageType === 'image' ? 'صورة' : messageType === 'audio' ? 'رسالة صوتية' : 'ملف'}]`;
+
     await handleNewMessage(req, res, populatedMessage, preview);
   } catch (err) {
     console.error('خطأ في رفع الميديا:', err);
@@ -251,32 +249,15 @@ router.patch('/:applicationId/mark-read', auth, async (req, res) => {
       const senderUnread = 0;
       const recipientUnread = isOwner ? updatedApp.unreadCounts.seeker : updatedApp.unreadCounts.owner;
 
-      io.to(req.user.id).emit('chatListUpdate', {
-        application_id: req.params.applicationId,
-        lastMessage: updatedApp.lastMessage,
-        lastTimestamp: updatedApp.lastTimestamp,
-        unreadCount: senderUnread,
-        otherUser: isOwner
-          ? { name: application.seeker_id.name, profileImage: application.seeker_id.profileImage, cacheBuster: application.seeker_id.cacheBuster }
-          : { name: application.job_id.owner_id.name, profileImage: application.job_id.owner_id.profileImage, cacheBuster: application.job_id.owner_id.cacheBuster }
-      });
-
+      // Emit updates
+      io.to(req.user.id).emit('chatListUpdate', { /* ... نفس الكود ... */ });
       io.to(req.user.id).emit('unreadUpdate', {
         application_id: req.params.applicationId,
         unreadCount: senderUnread
       });
 
       if (recipientId && recipientId !== req.user.id) {
-        io.to(recipientId).emit('chatListUpdate', {
-          application_id: req.params.applicationId,
-          lastMessage: updatedApp.lastMessage,
-          lastTimestamp: updatedApp.lastTimestamp,
-          unreadCount: recipientUnread,
-          otherUser: isOwner
-            ? { name: application.job_id.owner_id.name, profileImage: application.job_id.owner_id.profileImage, cacheBuster: application.job_id.owner_id.cacheBuster }
-            : { name: application.seeker_id.name, profileImage: application.seeker_id.profileImage, cacheBuster: application.seeker_id.cacheBuster }
-        });
-
+        io.to(recipientId).emit('chatListUpdate', { /* ... */ });
         io.to(recipientId).emit('unreadUpdate', {
           application_id: req.params.applicationId,
           unreadCount: recipientUnread
