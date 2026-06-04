@@ -26,9 +26,7 @@ const io = socketIo(server, {
 
 app.set('io', io);
 
-// ─────────────────────────────
-// MIDDLEWARES
-// ─────────────────────────────
+// ───────────── MIDDLEWARE ─────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -37,12 +35,10 @@ app.use(cors({
   credentials: true
 }));
 
-// Static uploads (optional)
+// uploads (اختياري)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ─────────────────────────────
-// API ROUTES
-// ─────────────────────────────
+// ───────────── ROUTES ─────────────
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/applications', require('./routes/applications'));
@@ -50,9 +46,7 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
 
-// ─────────────────────────────
-// SOCKET AUTH
-// ─────────────────────────────
+// ───────────── SOCKET AUTH ─────────────
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
@@ -66,9 +60,7 @@ io.use((socket, next) => {
   }
 });
 
-// ─────────────────────────────
-// SOCKET LOGIC
-// ─────────────────────────────
+// ───────────── SOCKET LOGIC ─────────────
 io.on('connection', (socket) => {
   console.log('مستخدم متصل:', socket.user?.id);
 
@@ -154,16 +146,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// ─────────────────────────────
-// TEST ROUTE
-// ─────────────────────────────
+// ───────────── TEST ─────────────
 app.get('/api/test', (req, res) => {
   res.json({ message: 'Backend شغال تمام ✅' });
 });
 
-// ─────────────────────────────
-// MONGODB + SERVER START
-// ─────────────────────────────
+// ───────────── DB + START ─────────────
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('✅ MongoDB Connected'))
   .catch(err => console.log('❌ Mongo Error:', err));
