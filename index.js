@@ -13,7 +13,7 @@ const Notification = require('./models/Notification');
 
 dotenv.config();
 
-// التحقق من وجود MONGO_URI
+// ───────────── التحقق من MONGO_URI ─────────────
 if (!process.env.MONGO_URI) {
   console.error("❌ MONGO_URI مش موجود في الـ Environment Variables!");
   process.exit(1);
@@ -159,6 +159,14 @@ io.on('connection', (socket) => {
 // ───────────── DB + SERVER START ─────────────
 const startServer = async () => {
   try {
+    console.log("🔍 جاري الاتصال بالمونجو...");
+
+    // للديباج فقط (عشان نشوف شكل الـ URI)
+    if (process.env.MONGO_URI) {
+      const maskedUri = process.env.MONGO_URI.replace(/:\/\/[^@]+@/, '://*****:*****@');
+      console.log("🔗 MONGO_URI (مخفي):", maskedUri);
+    }
+
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 8000,
       socketTimeoutMS: 45000,
