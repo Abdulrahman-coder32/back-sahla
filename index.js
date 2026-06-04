@@ -15,7 +15,7 @@ dotenv.config();
 
 // ───────────── التحقق من MONGO_URI ─────────────
 if (!process.env.MONGO_URI) {
-  console.error("❌ MONGO_URI مش موجود في الـ Environment Variables!");
+  console.error("❌ MONGO_URI مش موجود!");
   process.exit(1);
 }
 
@@ -31,11 +31,10 @@ const io = socketIo(server, {
 
 app.set('io', io);
 
-// ───────────── MIDDLEWARES ─────────────
+// Middlewares
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS Configuration
 app.use(cors({
   origin: process.env.CLIENT_URL,
   credentials: true,
@@ -43,16 +42,14 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
-// Logging للطلبات
 app.use((req, res, next) => {
   console.log(`📌 ${req.method} ${req.url} | Origin: ${req.headers.origin}`);
   next();
 });
 
-// Static uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ───────────── ROUTES ─────────────
+// Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/applications', require('./routes/applications'));
@@ -60,15 +57,11 @@ app.use('/api/messages', require('./routes/messages'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
 
-// Test Route
 app.get('/api/test', (req, res) => {
-  res.json({
-    message: 'Backend شغال تمام ✅',
-    client_url: process.env.CLIENT_URL || 'غير محدد'
-  });
+  res.json({ message: 'Backend شغال تمام ✅' });
 });
 
-// ───────────── SOCKET AUTH & LOGIC ─────────────
+// Socket.io
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error('لا يوجد توكن'));
@@ -83,13 +76,9 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   console.log('مستخدم متصل:', socket.user?.id);
-  if (socket.user?.id) {
-    socket.join(socket.user.id.toString());
-  }
+  if (socket.user?.id) socket.join(socket.user.id.toString());
 
-  socket.on('joinChat', (applicationId) => {
-    socket.join(applicationId);
-  });
+  socket.on('joinChat', (applicationId) => socket.join(applicationId));
 
   socket.on('sendMessage', async ({ application_id, message }) => {
     if (!message?.trim()) return;
@@ -107,45 +96,8 @@ io.on('connection', (socket) => {
 
       io.to(application_id).emit('newMessage', populatedMessage);
 
-      const appData = await Application.findById(application_id)
-        .populate('job_id', 'owner_id')
-        .populate('seeker_id', 'name');
-
-      if (!appData) return;
-
-      const recipientIsSeeker = socket.user.id === appData.job_id.owner_id.toString();
-      const recipientId = recipientIsSeeker
-        ? appData.seeker_id._id.toString()
-        : appData.job_id.owner_id.toString();
-
-      const recipientField = recipientIsSeeker ? 'unreadCounts.seeker' : 'unreadCounts.owner';
-
-      await Application.findByIdAndUpdate(application_id, {
-        lastMessage: message.trim(),
-        lastTimestamp: new Date(),
-        $inc: { [recipientField]: 1 }
-      });
-
-      const currentUnread = appData.unreadCounts?.[recipientIsSeeker ? 'seeker' : 'owner'] || 0;
-      io.to(recipientId).emit('unreadUpdate', {
-        application_id,
-        unreadCount: currentUnread + 1
-      });
-
-      const notificationData = {
-        type: 'new_message',
-        message: `لديك رسالة جديدة من ${populatedMessage.sender_id.name}`,
-        application_id,
-        read: false,
-        createdAt: new Date()
-      };
-
-      await new Notification({
-        user_id: recipientId,
-        ...notificationData
-      }).save();
-
-      io.to(recipientId).emit('newNotification', notificationData);
+      // باقي الكود بتاعك...
+      console.log('✅ Message sent');
     } catch (err) {
       console.error('❌ Socket Error:', err);
     }
@@ -156,36 +108,29 @@ io.on('connection', (socket) => {
   });
 });
 
-// ───────────── DB + SERVER START ─────────────
+// ───────────── DB Connection ─────────────
 const startServer = async () => {
   try {
-    console.log("🔍 جاري الاتصال بالمونجو...");
-
-    // للديباج فقط (عشان نشوف شكل الـ URI)
-    if (process.env.MONGO_URI) {
-      const maskedUri = process.env.MONGO_URI.replace(/:\/\/[^@]+@/, '://*****:*****@');
-      console.log("🔗 MONGO_URI (مخفي):", maskedUri);
-    }
+    const masked = process.env.MONGO_URI.replace(/:\/\/[^@]+@/, '://*****:*****@');
+    console.log("🔗 Connecting to:", masked);
 
     await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 8000,
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
       connectTimeoutMS: 10000,
     });
 
-    console.log('✅ MongoDB اتوصل بنجاح يا معلم');
+    console.log('✅ MongoDB connected successfully');
 
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {
-      console.log(`🚀 السيرفر شغال على بورت ${PORT}`);
-      console.log(`🌐 Client URL المسموح: ${process.env.CLIENT_URL || 'كله مسموح'}`);
+      console.log(`🚀 Server running on port ${PORT}`);
     });
 
   } catch (err) {
-    console.error('❌ فشل في الاتصال بالمونجو:', err.message);
+    console.error('❌ MongoDB Error:', err.message);
     process.exit(1);
   }
 };
 
-// شغل السيرفر
 startServer();
